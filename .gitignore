@@ -1,3 +1,7 @@
+# Build, etc.
+_build
+.vscode/ipch
+
 # Prerequisites
 *.d
 
