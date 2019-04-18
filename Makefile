@@ -3,7 +3,7 @@
 # project subdirectory.
 #
 
-PROJECT_NAME := koffee-mon
+PROJECT_NAME := coffee-spy
 
 IDF_PATH = esp-idf
 EXTRA_COMPONENT_DIRS += src

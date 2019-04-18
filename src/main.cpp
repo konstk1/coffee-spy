@@ -1,5 +1,5 @@
 /**
- * @brief Main for koffee-mon.
+ * @brief Main for coffee-spy.
  * 
  * @file main.cpp
  * @author Konstantin Klitenik
