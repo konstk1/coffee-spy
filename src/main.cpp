@@ -22,11 +22,11 @@ extern "C" {
 
 void app_main() {
     std::cout << "Hello world!" << std::endl;
-    ESP_LOGI("MAIN", "Info test log %d", 5);
+
     log.Error("Error test log %d", 5);
-    log.Warn("Warn test log %d", 5);
-    log.Info("Info test log %d", 5);
-    log.Verbose("Verb test log %d", 5);
+    log.Warn("Warn test log %s", "warning");
+    log.Info("Info test log %f", 5.3);
+    log.Verbose("Verb test log %x", 0xface);
 
 
     /* Print chip information */

@@ -15,6 +15,7 @@ ESPPORT = /dev/tty.usbserial-DN0*
 ESPBAUD ?= 1500000
 
 # CFLAGS += -DINCLUDE_UNIT_TESTS
-CFLAGS += -Wno-packed-bitfield-compat -Wno-char-subscripts
+CFLAGS += -Wno-packed-bitfield-compat #-Wno-char-subscripts
+CXXFLAGS += -std=c++14
 
 include $(IDF_PATH)/make/project.mk
