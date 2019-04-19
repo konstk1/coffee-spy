@@ -54,9 +54,12 @@
         "streambuf": "cpp",
         "thread": "cpp",
         "cinttypes": "cpp",
-        "typeinfo": "cpp"
+        "typeinfo": "cpp",
+        "esp_gatts_api.h": "c"
     },
     "cSpell.words": [
+        "GATTS",
+        "txpower"
     ],
     "C_Cpp.default.cppStandard": "c++14",
     "C_Cpp.default.cStandard": "c99"

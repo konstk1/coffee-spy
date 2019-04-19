@@ -9,11 +9,14 @@
 
 #include <iostream>
 
+// #include "esp_spi_flash.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_system.h"
-#include "esp_spi_flash.h"
+#include "nvs_flash.h"
 
+
+#include "BLE.h"
 #include "Logger.h"
 
 static const Logger log("MAIN");
@@ -21,6 +24,14 @@ static const Logger log("MAIN");
 extern "C" {
 
 void app_main() {
+    // initialize NVS
+    esp_err_t status = nvs_flash_init();
+    if (status == ESP_ERR_NVS_NO_FREE_PAGES || status == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        status = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(status);
+
     esp_chip_info_t chipInfo;
     esp_chip_info(&chipInfo);
 
@@ -31,6 +42,8 @@ void app_main() {
     std::cout << "* ESP32 IDF Ver:  " << esp_get_idf_version() << std::endl;
     std::cout << "* Flash size:     " << spi_flash_get_chip_size() / 1048576 << " MB" << std::endl;
     std::cout << "========================================" << std::endl;
+
+    ble_init();
 
     // for (int i = 10; i >= 0; i--) {
     //     printf("Restarting in %d seconds...\n", i);
