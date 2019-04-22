@@ -9,14 +9,17 @@
 
 #include <string.h>
 
-#include "esp_bt.h"
-#include "esp_bt_defs.h"
-#include "esp_bt_main.h"
-#include "esp_gap_ble_api.h"
-#include "esp_gatt_common_api.h"
-#include "esp_gatts_api.h"
+#include <esp_bt.h>
+#include <esp_bt_defs.h>
+#include <esp_bt_main.h>
+#include <esp_gap_ble_api.h>
+#include <esp_gatt_common_api.h>
+#include <esp_gatts_api.h>
+#include <esp_system.h>
 
-// #include "freertos/FreeRTOS.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/timers.h>
+
 // #include "freertos/task.h"
 // #include "freertos/event_groups.h"
 
@@ -27,6 +30,8 @@ static constexpr uint16_t GATTS_SERVICE_UUID_COFFEE = 0xCFFE;
 static constexpr uint16_t GATTS_CHAR_UUID_TEMP_1    = 0xFE01;
 
 static bool m_is_connected = false;
+static TimerHandle_t m_temp_notify_timer;
+
 
 #define PROFILE_NUM 			1
 #define PROFILE_APP_IDX			0
@@ -42,7 +47,7 @@ static const Logger log("BLE");
 static uint8_t short_service_uuid[16] = {
     /* LSB <--------------------------------------------------------------------------------> MSB */
     // uuid, 32bit, [12], [13], [14], [15] is the value
-    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, 0x01, 0xEE, 0xFF, 0xC0,
+    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, ((uint8_t *)&GATTS_SERVICE_UUID_COFFEE)[0], ((uint8_t *)&GATTS_SERVICE_UUID_COFFEE)[1], 0x00, 0x00,
 };
 
 static esp_ble_adv_data_t m_adv_data = {
@@ -123,7 +128,6 @@ enum
 
 static uint16_t m_handle_table[IDX_NUM_STATES];
 
-
 static const uint16_t primary_service_uuid         = ESP_GATT_UUID_PRI_SERVICE;
 static const uint16_t character_declaration_uuid   = ESP_GATT_UUID_CHAR_DECLARE;
 static const uint16_t character_client_config_uuid = ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
@@ -158,6 +162,45 @@ static const esp_gatts_attr_db_t gatt_db[IDX_NUM_STATES] =
       sizeof(uint16_t), sizeof(temp_1_measurement_ccc), (uint8_t *)temp_1_measurement_ccc}},
 };
 
+typedef struct {
+    esp_gatt_if_t gatts_if;
+    uint16_t conn_id;
+    bool need_confirm;
+} notif_params_t;
+
+static notif_params_t m_notif_params = { 0, 0 };
+
+static inline uint32_t swap_byte_32(uint32_t x) {
+    return (((x & 0x000000ffUL) << 24) |
+            ((x & 0x0000ff00UL) << 8) |
+            ((x & 0x00ff0000UL) >> 8) |
+            ((x & 0xff000000UL) >> 24));
+}
+
+static void temp_notify(TimerHandle_t timer) {
+    static uint32_t temp = 0;
+    uint32_t notif_data = swap_byte_32(temp);
+    esp_ble_gatts_send_indicate(m_notif_params.gatts_if, m_notif_params.conn_id, m_handle_table[IDX_TEMP_1_VAL],
+                                            sizeof(notif_data), (uint8_t *)&notif_data, m_notif_params.need_confirm);
+    ++temp;
+}
+
+static void notif_start(esp_gatt_if_t gatts_if, uint16_t conn_id, bool need_confirm) {
+    m_notif_params.gatts_if = gatts_if;
+    m_notif_params.conn_id = conn_id;
+    m_notif_params.need_confirm = need_confirm;
+
+    // start timer, if not already active
+    if (xTimerIsTimerActive(m_temp_notify_timer) == pdFALSE && xTimerStart(m_temp_notify_timer, 100) != pdPASS) {
+        log.Error("Failed to start temp notify timer");
+        return;
+    }
+};
+
+static void notif_stop() {
+    xTimerStop(m_temp_notify_timer, 100);
+};
+
 static void ble_on_read(esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
     // if no response is necessary (auto response by ESP), just return
     if (!param->read.need_rsp) {
@@ -168,8 +211,6 @@ static void ble_on_read(esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
     esp_gatt_rsp_t rsp;
     memset(&rsp, 0, sizeof(esp_gatt_rsp_t));
     rsp.attr_value.handle = param->read.handle;
-
-    log.Debug("ON READ: need rsp = %d", param->read.need_rsp);
 
     if (param->read.handle == m_handle_table[IDX_TEMP_1_VAL]) {
         rsp.attr_value.len = 4;
@@ -187,6 +228,42 @@ static void ble_on_read(esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 
     esp_ble_gatts_send_response(gatts_if, param->read.conn_id, param->read.trans_id,
                                     gatt_status, &rsp);
+}
+
+static void ble_on_write(esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
+    esp_gatt_status_t gatt_status = ESP_GATT_OK;
+
+    log.Debug("ON WRITE: is_prep %d  need_rsp %d", param->write.is_prep, param->write.need_rsp);
+
+    // right now we only handle CFG writes which don't require prep or response
+    if (!param->write.is_prep) {
+        // the data length of gattc write  must be less than max characteristic length
+        if (param->write.handle == m_handle_table[IDX_TEMP_1_CHAR_CFG] && param->write.len == 2) {
+            uint16_t descr_value = param->write.value[1] << 8 | param->write.value[0];
+            if (descr_value == 0x0001) {
+                log.Info("notify enable");
+                notif_start(gatts_if, param->write.conn_id, false);
+            } else if (descr_value == 0x0002) {
+                log.Info("indicate enable");
+                notif_start(gatts_if, param->write.conn_id, true);
+            } else if (descr_value == 0x0000) {
+                log.Info("notify/indicate disable ");
+                notif_stop();
+            } else {
+                log.Error("unknown descr value");
+            }
+        } else {
+            gatt_status = ESP_GATT_INVALID_HANDLE;
+        }
+        
+        // send response when response is requested and not handled by ESP
+        if (param->write.need_rsp) {
+            esp_ble_gatts_send_response(gatts_if, param->write.conn_id, param->write.trans_id, gatt_status, NULL);
+        }
+    } else {
+        // handle prep write
+        // currently nothing to do
+    }
 }
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
@@ -231,7 +308,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
     switch (event) {
     case ESP_GATTS_REG_EVT: {
-        log.Info("REGISTER_APP_EVT, status %d, app_id %d\n", param->reg.status, param->reg.app_id);
+        // log.Info("REGISTER_APP_EVT, status %d, app_id %d\n", param->reg.status, param->reg.app_id);
         esp_err_t status = esp_ble_gap_set_device_name(BLE_DEVICE_NAME);
         if (status != ESP_OK) {
             log.Error("set device name failed, error code = %x", status);
@@ -256,23 +333,21 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     }
     case ESP_GATTS_WRITE_EVT:
         log.Warn("GATT_WRITE_EVT, conn_id %d, trans_id %d, handle %d", param->write.conn_id, param->write.trans_id, param->write.handle);
+        ble_on_write(gatts_if, param);
         break;
     case ESP_GATTS_EXEC_WRITE_EVT:
         log.Warn("ESP_GATTS_EXEC_WRITE_EVT");
         break;
     case ESP_GATTS_MTU_EVT:
-        log.Info("ESP_GATTS_MTU_EVT, MTU %d", param->mtu.mtu);
         break;
     case ESP_GATTS_UNREG_EVT:
         break;
     case ESP_GATTS_DELETE_EVT:
         break;
     case ESP_GATTS_START_EVT:
-        log.Info("SERVICE_START_EVT, status %d, service_handle %d\n",
-                 param->start.status, param->start.service_handle);
+        // log.Info("SERVICE_START_EVT, status %d, service_handle %d\n", param->start.status, param->start.service_handle);
         break;
     case ESP_GATTS_STOP_EVT:
-        log.Info("SERVICE_STOP_EVT");
         break;
     case ESP_GATTS_CONNECT_EVT: {
         esp_ble_conn_update_params_t conn_params = {0};
@@ -302,14 +377,9 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             log.Error("create attribute table abnormally, num_handle (%d) doesn't equal to IDX_NUM_STATES(%d)",
                      param->add_attr_tab.num_handle, IDX_NUM_STATES);
         } else {
-            log.Info("create attribute table successfully, the number handle = %d\n", param->add_attr_tab.num_handle);
+            // log.Info("create attribute table successfully, the number handle = %d\n", param->add_attr_tab.num_handle);
             memcpy(m_handle_table, param->add_attr_tab.handles, sizeof(m_handle_table));
             esp_ble_gatts_start_service(m_handle_table[IDX_SVC]);
-
-            printf("IDX SVC       %d\n", m_handle_table[IDX_SVC]);
-            printf("IDX TEMP CHAR %d\n", m_handle_table[IDX_TEMP_1_CHAR]);
-            printf("IDX TEMP VAL  %d\n", m_handle_table[IDX_TEMP_1_VAL]);
-            printf("IDX TEMP CFG  %d\n", m_handle_table[IDX_TEMP_1_CHAR_CFG]);
         }
         break;
     case ESP_GATTS_CONF_EVT:
@@ -366,21 +436,19 @@ void ble_init() {
         return;
     }
 
-    log.Info("Init BLE");
+    log.Info("Initializing BLE");
     status = esp_bluedroid_init();
     if (status != ESP_OK) {
         log.Error("Bluedroid init failed: %s", esp_err_to_name(status));
         return;
     }
 
-    log.Info("Bluedroid init");
     status = esp_bluedroid_enable();
     if (status != ESP_OK) {
         log.Error("Bluedroid enable failed: %s", esp_err_to_name(status));
         return;
     }
 
-    log.Info("Register callbacks");
     status = esp_ble_gatts_register_callback(gatts_event_handler);
     if (status != ESP_OK) {
         log.Error("GATTS register callback failed: %s", esp_err_to_name(status));
@@ -393,18 +461,22 @@ void ble_init() {
         return;
     }
     
-    log.Info("Register app");
     status = esp_ble_gatts_app_register(APP_ID);
     if (status != ESP_OK) {
         log.Error("Reg app failed: %s", esp_err_to_name(status));
         return;
     }
 
-    // Set MTU
-    log.Info("Set MTU");
+    // set MTU
     status = esp_ble_gatt_set_local_mtu(200);
     if (status != ESP_OK) {
         log.Error("Failed MTU set: %s", esp_err_to_name(status));
+    }
+
+    m_temp_notify_timer = xTimerCreate("TempNotify", 1000 / portTICK_PERIOD_MS, pdTRUE, NULL, temp_notify);
+    if (!m_temp_notify_timer) {
+        log.Error("Failed to create temp notify timer");
+        return;
     }
 
     return;
