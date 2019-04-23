@@ -7,7 +7,7 @@
  * Copyright © 2019 Konstantin Klitenik. All rights reserved.
  */
 
-#include "Logger.h"
+#include "Logger.hpp"
 
 Logger::Level Logger::mGlobalLevel = Logger::Level::VERBOSE;
 

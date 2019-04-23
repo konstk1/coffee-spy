@@ -1,6 +1,8 @@
 /**
  * @brief Main for coffee-spy.
  * 
+ * ESP32-Thing: https://learn.sparkfun.com/tutorials/esp32-thing-hookup-guide#hardware-overview
+ * 
  * @file main.cpp
  * @author Konstantin Klitenik
  * 
@@ -9,15 +11,16 @@
 
 #include <iostream>
 
-// #include "esp_spi_flash.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 
 
-#include "BLE.h"
-#include "Logger.h"
+#include "BLE.hpp"
+#include "Logger.hpp"
+#include "MAX31855.hpp"
+#include "Utilities.hpp"
 
 static const Logger log("MAIN");
 
@@ -43,16 +46,21 @@ void app_main() {
     std::cout << "* Flash size:     " << spi_flash_get_chip_size() / 1048576 << " MB" << std::endl;
     std::cout << "========================================" << std::endl;
 
-    ble_init();
+    // ble_init();
+    // log.Info("Waiting for BLE connection...");
 
-    log.Info("Waiting for BLE connection...");
-    // for (int i = 10; i >= 0; i--) {
-    //     printf("Restarting in %d seconds...\n", i);
-    //     vTaskDelay(1000 / portTICK_PERIOD_MS);
-    // }
-    // printf("Restarting now.\n");
-    // fflush(stdout);
-    // esp_restart();
+    MAX31855 probe;
+
+    for (int i = 0; i < 100; i++) {
+        auto result = probe.ReadTempC();
+        if (result.getError() != MAX31855::Error::OK) {
+            log.Error("Failed to read thermocouple: %d", result.getError());
+        } else {
+            std::cout << "Temp read: " << result.getValue() << std::endl;
+        }
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+
 }
 
 }

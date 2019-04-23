@@ -59,6 +59,13 @@
     },
     "cSpell.words": [
         "GATTS",
+        "RXDATA",
+        "VSPI",
+        "mosi",
+        "quadhd",
+        "quadwp",
+        "rxlength",
+        "sclk",
         "txpower"
     ],
     "C_Cpp.default.cppStandard": "c++14",

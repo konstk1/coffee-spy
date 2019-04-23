@@ -1,7 +1,7 @@
 /**
  * @brief Logging utility.
  * 
- * @file Logger.h
+ * @file Logger.hpp
  * @author Konstantin Klitenik
  * 
  * Copyright © 2019 Konstantin Klitenik. All rights reserved.

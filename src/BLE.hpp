@@ -1,3 +1,8 @@
+/**
+ * @brief BLE GATT server config.
+ * 
+ */
+
 #ifndef BLE_H
 #define BLE_H
 

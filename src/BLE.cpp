@@ -1,5 +1,5 @@
 /**
- * @brief BLE GATTS server config.
+ * @brief BLE GATT server config.
  * 
  * @file BLE.cpp
  * @author Konstantin Klitenik
@@ -9,22 +9,19 @@
 
 #include <string.h>
 
-#include <esp_bt.h>
-#include <esp_bt_defs.h>
-#include <esp_bt_main.h>
-#include <esp_gap_ble_api.h>
-#include <esp_gatt_common_api.h>
-#include <esp_gatts_api.h>
-#include <esp_system.h>
+#include "esp_bt.h"
+#include "esp_bt_defs.h"
+#include "esp_bt_main.h"
+#include "esp_gap_ble_api.h"
+#include "esp_gatt_common_api.h"
+#include "esp_gatts_api.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/timers.h>
-
-// #include "freertos/task.h"
-// #include "freertos/event_groups.h"
-
-#include "Logger.h"
-#include "ble.h"
+#include "Logger.hpp"
+#include "Utilities.hpp"
+#include "BLE.hpp"
 
 static constexpr uint16_t GATTS_SERVICE_UUID_COFFEE = 0xCFFE;
 static constexpr uint16_t GATTS_CHAR_UUID_TEMP_1    = 0xFE01;
@@ -169,13 +166,6 @@ typedef struct {
 } notif_params_t;
 
 static notif_params_t m_notif_params = { 0, 0 };
-
-static inline uint32_t swap_byte_32(uint32_t x) {
-    return (((x & 0x000000ffUL) << 24) |
-            ((x & 0x0000ff00UL) << 8) |
-            ((x & 0x00ff0000UL) >> 8) |
-            ((x & 0xff000000UL) >> 24));
-}
 
 static void temp_notify(TimerHandle_t timer) {
     static uint32_t temp = 0;
