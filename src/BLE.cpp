@@ -20,15 +20,19 @@
 #include "freertos/timers.h"
 
 #include "Logger.hpp"
+#include "MAX31855.hpp"
 #include "Utilities.hpp"
 #include "BLE.hpp"
 
-static constexpr uint16_t GATTS_SERVICE_UUID_COFFEE = 0xCFFE;
+static const Logger log("BLE");
+
+static const MAX31855 m_tc_probe;
+
+static constexpr uint8_t GATTS_SERVICE_UUID_COFFEE[] = { 0xFE, 0xCF };
 static constexpr uint16_t GATTS_CHAR_UUID_TEMP_1    = 0xFE01;
 
 static bool m_is_connected = false;
 static TimerHandle_t m_temp_notify_timer;
-
 
 #define PROFILE_NUM 			1
 #define PROFILE_APP_IDX			0
@@ -36,36 +40,42 @@ static TimerHandle_t m_temp_notify_timer;
 #define SVC_INST_ID             0
 #define BLE_DEVICE_NAME         "CFE-SPY"
 
-#define PREPARE_BUF_MAX_SIZE    1024
 #define CHAR_DECLARATION_SIZE   (sizeof(uint8_t))
 
-static const Logger log("BLE");
-
-static uint8_t short_service_uuid[16] = {
+static constexpr uint8_t SHORT_SERVICE_UUID[16] = {
     /* LSB <--------------------------------------------------------------------------------> MSB */
     // uuid, 32bit, [12], [13], [14], [15] is the value
-    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, ((uint8_t *)&GATTS_SERVICE_UUID_COFFEE)[0], ((uint8_t *)&GATTS_SERVICE_UUID_COFFEE)[1], 0x00, 0x00,
+    0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, GATTS_SERVICE_UUID_COFFEE[0], GATTS_SERVICE_UUID_COFFEE[1], 0x00, 0x00,
 };
 
-static esp_ble_adv_data_t m_adv_data = {
+// BLE adv and conn settings, optimized for iOS
+// https://developer.apple.com/library/archive/qa/qa1931/_index.html
+static constexpr int m_adv_min = 244;           // N * 0.625ms = 152.5ms
+static constexpr int m_adv_max = 244;           // N * 0.625ms = 152.5ms
+static constexpr int m_conn_min_interval = 36;  // N * 1.25ms = 45ms
+static constexpr int m_conn_max_interval = 72;  // N * 1.25ms = 90ms
+static constexpr int m_conn_slave_latency = 0;
+static constexpr int m_conn_timeout = 400;      // N * 100ms = 4s
+
+static constexpr esp_ble_adv_data_t m_adv_data = {
     .set_scan_rsp = false,
     .include_name = true,
     .include_txpower = true,
-    .min_interval = 0x0006,    // LSB 1.25ms
-    .max_interval = 0x0010,
+    .min_interval = m_conn_min_interval,
+    .max_interval = m_conn_max_interval,
     .appearance = 0x00,
     .manufacturer_len = 0,
     .p_manufacturer_data =  NULL,
     .service_data_len = 0,
     .p_service_data = NULL,
-    .service_uuid_len = sizeof(short_service_uuid),
-    .p_service_uuid = short_service_uuid,
+    .service_uuid_len = sizeof(SHORT_SERVICE_UUID),
+    .p_service_uuid = const_cast<uint8_t *>(SHORT_SERVICE_UUID),
     .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
 };
 
-static esp_ble_adv_params_t m_adv_params = {
-    .adv_int_min       = 160,      // N * .625ms = 100ms
-    .adv_int_max       = 320,      // N * .625ms = 200ms
+static constexpr esp_ble_adv_params_t m_adv_params = {
+    .adv_int_min       = m_adv_min,
+    .adv_int_max       = m_adv_max,
     .adv_type          = ADV_TYPE_IND,
     .own_addr_type     = BLE_ADDR_TYPE_PUBLIC,
     .peer_addr         = { 0 },
@@ -74,24 +84,24 @@ static esp_ble_adv_params_t m_adv_params = {
     .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
 };
 
+// bits for keeping track of adv/scan resp config
 #define ADV_CONFIG_FLAG             (1 << 0)
 #define SCAN_RSP_CONFIG_FLAG        (1 << 1)
-
 static uint8_t m_adv_config_done = 0;
 
 struct gatts_profile_inst {
     esp_gatts_cb_t gatts_cb;
     uint16_t gatts_if;
-    uint16_t app_id;
-    uint16_t conn_id;
-    uint16_t service_handle;
-    esp_gatt_srvc_id_t service_id;
-    uint16_t char_handle;
-    esp_bt_uuid_t char_uuid;
-    esp_gatt_perm_t perm;
-    esp_gatt_char_prop_t property;
-    uint16_t descr_handle;
-    esp_bt_uuid_t descr_uuid;
+    // uint16_t app_id;
+    // uint16_t conn_id;
+    // uint16_t service_handle;
+    // esp_gatt_srvc_id_t service_id;
+    // uint16_t char_handle;
+    // esp_bt_uuid_t char_uuid;
+    // esp_gatt_perm_t perm;
+    // esp_gatt_char_prop_t property;
+    // uint16_t descr_handle;
+    // esp_bt_uuid_t descr_uuid;
 };
 
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
@@ -103,19 +113,8 @@ static struct gatts_profile_inst m_profile_tab[PROFILE_NUM] = {
     },
 };
 
-typedef struct {
-    uint8_t  *prepare_buf;
-    int      prepare_len;
-} prepare_type_env_t;
-
-static prepare_type_env_t m_prepare_write_env;
-
-void write_event_env(esp_gatt_if_t gatts_if, prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param);
-void exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param);
-
-/* Attributes State Machine */
-enum
-{
+// attributes state machine
+enum {
     IDX_SVC,
     IDX_TEMP_1_CHAR,
     IDX_TEMP_1_VAL,
@@ -125,18 +124,20 @@ enum
 
 static uint16_t m_handle_table[IDX_NUM_STATES];
 
-static const uint16_t primary_service_uuid         = ESP_GATT_UUID_PRI_SERVICE;
-static const uint16_t character_declaration_uuid   = ESP_GATT_UUID_CHAR_DECLARE;
-static const uint16_t character_client_config_uuid = ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
-static const uint8_t  char_prop_read               = ESP_GATT_CHAR_PROP_BIT_READ;
-static const uint8_t  char_prop_write              = ESP_GATT_CHAR_PROP_BIT_WRITE;
-static const uint8_t  char_prop_read_notify        = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
-static const uint8_t  char_prop_read_write_notify  = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
-static const uint8_t  temp_1_measurement_ccc[2]    = {0x00, 0x00};
-static const uint8_t  temp_1_char_value[4] = { 0x01, 0x02, 0x03, 0x04 };
+static constexpr uint16_t primary_service_uuid         = ESP_GATT_UUID_PRI_SERVICE;
+static constexpr uint16_t character_declaration_uuid   = ESP_GATT_UUID_CHAR_DECLARE;
+static constexpr uint16_t character_client_config_uuid = ESP_GATT_UUID_CHAR_CLIENT_CONFIG;
+static constexpr uint8_t  char_prop_read               = ESP_GATT_CHAR_PROP_BIT_READ;
+static constexpr uint8_t  char_prop_write              = ESP_GATT_CHAR_PROP_BIT_WRITE;
+static constexpr uint8_t  char_prop_read_notify        = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
+static constexpr uint8_t  char_prop_read_write_notify  = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
+static constexpr uint8_t  temp_1_measurement_ccc[2]    = {0x00, 0x00};
+
+// characteristic values
+static int32_t  temp_1_char_value = 0;
 
 /* Full Database Description - Used to add attributes into the database */
-static const esp_gatts_attr_db_t gatt_db[IDX_NUM_STATES] =
+static constexpr esp_gatts_attr_db_t gatt_db[IDX_NUM_STATES] =
 {
     // Service Declaration
     [IDX_SVC]        =
@@ -151,7 +152,7 @@ static const esp_gatts_attr_db_t gatt_db[IDX_NUM_STATES] =
     /* Characteristic Value */
     [IDX_TEMP_1_VAL] =
     {{ESP_GATT_RSP_BY_APP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEMP_1, ESP_GATT_PERM_READ,
-      sizeof(temp_1_char_value), sizeof(temp_1_char_value), (uint8_t *)temp_1_char_value}},
+      sizeof(temp_1_char_value), sizeof(temp_1_char_value), (uint8_t *)&temp_1_char_value}},
 
     /* Client Characteristic Configuration Descriptor */
     [IDX_TEMP_1_CHAR_CFG]  =
@@ -165,14 +166,19 @@ typedef struct {
     bool need_confirm;
 } notif_params_t;
 
-static notif_params_t m_notif_params = { 0, 0 };
+static notif_params_t m_notif_params = { 0, 0, false };
+
+static int32_t get_probe_temp() {
+    auto result = m_tc_probe.ReadTempC();
+    int32_t value = result.getError() == MAX31855::Error::OK ? result.getValue() : INT32_MIN;
+    log.Verbose("TC Temp: %d C", value);
+    return swap_byte_32(value);
+}
 
 static void temp_notify(TimerHandle_t timer) {
-    static uint32_t temp = 0;
-    uint32_t notif_data = swap_byte_32(temp);
+    temp_1_char_value = get_probe_temp();
     esp_ble_gatts_send_indicate(m_notif_params.gatts_if, m_notif_params.conn_id, m_handle_table[IDX_TEMP_1_VAL],
-                                            sizeof(notif_data), (uint8_t *)&notif_data, m_notif_params.need_confirm);
-    ++temp;
+                                sizeof(temp_1_char_value), (uint8_t *)&temp_1_char_value, m_notif_params.need_confirm);
 }
 
 static void notif_start(esp_gatt_if_t gatts_if, uint16_t conn_id, bool need_confirm) {
@@ -188,6 +194,7 @@ static void notif_start(esp_gatt_if_t gatts_if, uint16_t conn_id, bool need_conf
 };
 
 static void notif_stop() {
+    log.Verbose("Stop notifications");
     xTimerStop(m_temp_notify_timer, 100);
 };
 
@@ -203,15 +210,14 @@ static void ble_on_read(esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
     rsp.attr_value.handle = param->read.handle;
 
     if (param->read.handle == m_handle_table[IDX_TEMP_1_VAL]) {
-        rsp.attr_value.len = 4;
+        rsp.attr_value.len = sizeof(temp_1_char_value);
         memset(&rsp, 0, sizeof(esp_gatt_rsp_t));
-        // TODO: update this
         rsp.attr_value.handle = param->read.handle;
         rsp.attr_value.len = 4;
-        rsp.attr_value.value[0] = 0xc0;
-        rsp.attr_value.value[1] = 0xff;
-        rsp.attr_value.value[2] = 0xee;
-        rsp.attr_value.value[3] = 0x01;
+
+        temp_1_char_value = get_probe_temp();
+        memcpy(rsp.attr_value.value, &temp_1_char_value, sizeof(temp_1_char_value));
+        
     } else {
         gatt_status = ESP_GATT_INVALID_HANDLE;
     }
@@ -261,7 +267,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
         m_adv_config_done &= (~ADV_CONFIG_FLAG);
         if (m_adv_config_done == 0) {
-            esp_ble_gap_start_advertising(&m_adv_params);
+            esp_ble_gap_start_advertising(const_cast<esp_ble_adv_params_t *>(&m_adv_params));
         }
         break;
     case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
@@ -304,7 +310,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             log.Error("set device name failed, error code = %x", status);
         }
         //config adv data
-        status = esp_ble_gap_config_adv_data(&m_adv_data);
+        status = esp_ble_gap_config_adv_data(const_cast<esp_ble_adv_data_t *>(&m_adv_data));
         if (status != ESP_OK) {
             log.Error("config adv data failed, error code = %x", status);
         }
@@ -340,25 +346,26 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     case ESP_GATTS_STOP_EVT:
         break;
     case ESP_GATTS_CONNECT_EVT: {
-        esp_ble_conn_update_params_t conn_params = {0};
-        memcpy(conn_params.bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
-        /* For the IOS system, please reference the apple official documents about the ble connection parameters restrictions. */
-        // TODO: check params below for iOS specs
-        conn_params.latency = 0;
-        conn_params.max_int = 0x20;    // max_int = 0x20*1.25ms = 40ms
-        conn_params.min_int = 0x10;    // min_int = 0x10*1.25ms = 20ms
-        conn_params.timeout = 400;     // timeout = 400*10ms = 4000ms
+        esp_ble_conn_update_params_t conn_params;
+
+        memcpy(conn_params.bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));  // set BT address
+        conn_params.latency = m_conn_slave_latency;
+        conn_params.max_int = m_conn_max_interval;
+        conn_params.min_int = m_conn_min_interval;
+        conn_params.timeout = m_conn_timeout;
+
         log.Info("ESP_GATTS_CONNECT_EVT, conn_id %d, remote %02x:%02x:%02x:%02x:%02x:%02x:",
                  param->connect.conn_id,
                  param->connect.remote_bda[0], param->connect.remote_bda[1], param->connect.remote_bda[2],
                  param->connect.remote_bda[3], param->connect.remote_bda[4], param->connect.remote_bda[5]);
-        //start sent the update connection parameters to the peer device.
-        esp_ble_gap_update_conn_params(&conn_params);
+        
+        esp_ble_gap_update_conn_params(&conn_params);   // send the updated connection parameters to the peer device.
         break;
     }
     case ESP_GATTS_DISCONNECT_EVT:
         log.Info("ESP_GATTS_DISCONNECT_EVT, disconnect reason 0x%x", param->disconnect.reason);
-        esp_ble_gap_start_advertising(&m_adv_params);
+        notif_stop();
+        esp_ble_gap_start_advertising(const_cast<esp_ble_adv_params_t *>(&m_adv_params));
         break;
     case ESP_GATTS_CREAT_ATTR_TAB_EVT:
         if (param->add_attr_tab.status != ESP_GATT_OK) {
@@ -384,7 +391,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 }
 
 static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
-    // If event is register event, store the gatts_if for each profile
+    // if register event, store the gatts_if for each profile
     if (event == ESP_GATTS_REG_EVT) {
         if (param->reg.status == ESP_GATT_OK) {
             m_profile_tab[PROFILE_APP_IDX].gatts_if = gatts_if;
@@ -396,8 +403,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 
 
     for (int idx = 0; idx < PROFILE_NUM; idx++) {
-        // ESP_GATT_IF_NONE, not specify a certain gatt_if, need to call every profile cb function
-
+        // if ESP_GATT_IF_NONE, then gatt_if wasn't specified, need to call every profile's cb function
         if (gatts_if == ESP_GATT_IF_NONE || gatts_if == m_profile_tab[idx].gatts_if) {
             if (m_profile_tab[idx].gatts_cb) {
                 m_profile_tab[idx].gatts_cb(event, gatts_if, param);

@@ -81,7 +81,7 @@ MAX31855::~MAX31855() {
     spi_bus_free(VSPI_HOST);
 }
 
-Maybe<int, MAX31855::Error> MAX31855::ReadTempC() const {
+Either<int, MAX31855::Error> MAX31855::ReadTempC() const {
     // create 32-bit rx-only transaction putting data directly into transaction struct
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));
@@ -92,14 +92,14 @@ Maybe<int, MAX31855::Error> MAX31855::ReadTempC() const {
     esp_err_t status = spi_device_polling_transmit(m_spi, &t);
     if (status != ESP_OK) {
         log.Error("Failed SPI transmit: %s", esp_err_to_name(status));
-        return Maybe<int, MAX31855::Error>(0, MAX31855::Error::SPI_ERROR);
+        return Either<int, MAX31855::Error>(0, MAX31855::Error::SPI_ERROR);
     }
 
     uint32_t rawData = SPI_SWAP_DATA_RX(*(uint32_t*)t.rx_data, 32);  // byte-swap RX data
 
     if (rawData == 0) {
         log.Error("SPI device not responding");
-        return Maybe<int, MAX31855::Error>(0, MAX31855::Error::SPI_ERROR);
+        return Either<int, MAX31855::Error>(0, MAX31855::Error::SPI_ERROR);
     }
 
     max31855_data_t *data = reinterpret_cast<max31855_data_t *>(&rawData);
@@ -112,10 +112,10 @@ Maybe<int, MAX31855::Error> MAX31855::ReadTempC() const {
         log.Error("Data fault (SCV %d SCG %d OC %d)", (int)data->shortToVccFault, (int)data->shortToGndFault, (int)data->openCircuitFault);
         MAX31855::Error error = data->shortToGndFault ? MAX31855::Error::TC_SCG : (
                                 data->shortToVccFault ? MAX31855::Error::TC_SCV : MAX31855::Error::TC_OPEN);
-        return Maybe<int, MAX31855::Error>(0, error);
+        return Either<int, MAX31855::Error>(0, error);
     }
 
     int tempC = data->tcTemp >> 2;       // LSB is 0.25 degC
 
-    return Maybe<int, MAX31855::Error>(tempC, MAX31855::Error::OK) ;
+    return Either<int, MAX31855::Error>(tempC, MAX31855::Error::OK) ;
 }

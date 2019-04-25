@@ -18,13 +18,13 @@ inline uint32_t swap_byte_32(uint32_t x) {
 }
 
 template<class T, class E>
-class Maybe {
+class Either {
 public:
-    Maybe(T value, E error): m_value(value), m_error(error) {};
-    ~Maybe() = default;
+    Either(T value, E error): m_value(value), m_error(error) {};
+    ~Either() = default;
 
-    T getValue() { return m_value; };
-    E getError() { return m_error; };
+    T getValue() const { return m_value; };
+    E getError() const { return m_error; };
 
 private:
     T m_value;

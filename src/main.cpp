@@ -46,20 +46,20 @@ void app_main() {
     std::cout << "* Flash size:     " << spi_flash_get_chip_size() / 1048576 << " MB" << std::endl;
     std::cout << "========================================" << std::endl;
 
-    // ble_init();
-    // log.Info("Waiting for BLE connection...");
+    ble_init();
+    log.Info("Waiting for BLE connection...");
 
-    MAX31855 probe;
+    // MAX31855 probe;
 
-    for (int i = 0; i < 100; i++) {
-        auto result = probe.ReadTempC();
-        if (result.getError() != MAX31855::Error::OK) {
-            log.Error("Failed to read thermocouple: %d", result.getError());
-        } else {
-            std::cout << "Temp read: " << result.getValue() << std::endl;
-        }
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
+    // for (int i = 0; i < 100; i++) {
+    //     auto result = probe.ReadTempC();
+    //     if (result.getError() != MAX31855::Error::OK) {
+    //         log.Error("Failed to read thermocouple: %d", result.getError());
+    //     } else {
+    //         std::cout << "Temp read: " << result.getValue() << std::endl;
+    //     }
+    //     vTaskDelay(1000 / portTICK_PERIOD_MS);
+    // }
 
 }
 

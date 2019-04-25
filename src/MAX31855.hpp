@@ -46,9 +46,9 @@ public:
     /**
      * @brief Read thermocouple temperature.
      * 
-     * @return Maybe<int, MAX31855::Error> Result with temperature in Celsius or error code
+     * @return Either<int, MAX31855::Error> Result with temperature in Celsius or error code
      */
-    Maybe<int, MAX31855::Error> ReadTempC() const;
+    Either<int, MAX31855::Error> ReadTempC() const;
 
 private:
     spi_device_handle_t m_spi;
