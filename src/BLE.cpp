@@ -26,10 +26,12 @@
 
 static const Logger log("BLE");
 
-static const MAX31855 m_tc_probe;
+static const MAX31855 m_tc_probe_1(5);
+static const MAX31855 m_tc_probe_2(2);
 
 static constexpr uint8_t GATTS_SERVICE_UUID_COFFEE[] = { 0xFE, 0xCF };
 static constexpr uint16_t GATTS_CHAR_UUID_TEMP_1    = 0xFE01;
+static constexpr uint16_t GATTS_CHAR_UUID_TEMP_2    = 0xFE02;
 
 static bool m_is_connected = false;
 static TimerHandle_t m_temp_notify_timer;
@@ -119,6 +121,9 @@ enum {
     IDX_TEMP_1_CHAR,
     IDX_TEMP_1_VAL,
     IDX_TEMP_1_CHAR_CFG,
+    IDX_TEMP_2_CHAR,
+    IDX_TEMP_2_VAL,
+    IDX_TEMP_2_CHAR_CFG,
     IDX_NUM_STATES,
 };
 
@@ -132,9 +137,11 @@ static constexpr uint8_t  char_prop_write              = ESP_GATT_CHAR_PROP_BIT_
 static constexpr uint8_t  char_prop_read_notify        = ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 static constexpr uint8_t  char_prop_read_write_notify  = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 static constexpr uint8_t  temp_1_measurement_ccc[2]    = {0x00, 0x00};
+static constexpr uint8_t  temp_2_measurement_ccc[2]    = {0x00, 0x00};
 
 // characteristic values
 static int32_t  temp_1_char_value = 0;
+static int32_t  temp_2_char_value = 0;
 
 /* Full Database Description - Used to add attributes into the database */
 static constexpr esp_gatts_attr_db_t gatt_db[IDX_NUM_STATES] =
@@ -144,20 +151,34 @@ static constexpr esp_gatts_attr_db_t gatt_db[IDX_NUM_STATES] =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&primary_service_uuid, ESP_GATT_PERM_READ,
       sizeof(uint16_t), sizeof(GATTS_SERVICE_UUID_COFFEE), (uint8_t *)&GATTS_SERVICE_UUID_COFFEE}},
 
-    /* Characteristic Declaration */
+    // Temp 1 Characteristic Declaration
     [IDX_TEMP_1_CHAR]     =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
       CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_notify}},
 
-    /* Characteristic Value */
+    // Temp 1 Characteristic Value
     [IDX_TEMP_1_VAL] =
     {{ESP_GATT_RSP_BY_APP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEMP_1, ESP_GATT_PERM_READ,
       sizeof(temp_1_char_value), sizeof(temp_1_char_value), (uint8_t *)&temp_1_char_value}},
 
-    /* Client Characteristic Configuration Descriptor */
+    // Temp 1 Client Characteristic Configuration Descriptor
     [IDX_TEMP_1_CHAR_CFG]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
       sizeof(uint16_t), sizeof(temp_1_measurement_ccc), (uint8_t *)temp_1_measurement_ccc}},
+    
+    [IDX_TEMP_2_CHAR]     =
+    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
+      CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_notify}},
+
+    // Temp 2 Characteristic Value
+    [IDX_TEMP_2_VAL] =
+    {{ESP_GATT_RSP_BY_APP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEMP_2, ESP_GATT_PERM_READ,
+      sizeof(temp_2_char_value), sizeof(temp_2_char_value), (uint8_t *)&temp_2_char_value}},
+
+    // Temp 2 Client Characteristic Configuration Descriptor
+    [IDX_TEMP_2_CHAR_CFG]  =
+    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+      sizeof(uint16_t), sizeof(temp_2_measurement_ccc), (uint8_t *)temp_2_measurement_ccc}},
 };
 
 typedef struct {
@@ -168,17 +189,33 @@ typedef struct {
 
 static notif_params_t m_notif_params = { 0, 0, false };
 
-static int32_t get_probe_temp() {
-    auto result = m_tc_probe.ReadTempC();
+static int32_t get_probe_temp(int probe_num) {
+    Either<int, MAX31855::Error> result(INT32_MIN, MAX31855::Error::OK);
+
+    switch(probe_num) {
+        case 1:
+            result = m_tc_probe_1.ReadTempC();
+            break;
+        case 2:
+            result = m_tc_probe_2.ReadTempC();
+            break;
+        default:
+            return INT32_MIN;
+    }
+
     int32_t value = result.getError() == MAX31855::Error::OK ? result.getValue() : INT32_MIN;
     log.Verbose("TC Temp: %d C", value);
     return swap_byte_32(value);
 }
 
 static void temp_notify(TimerHandle_t timer) {
-    temp_1_char_value = get_probe_temp();
+    temp_1_char_value = get_probe_temp(1);
     esp_ble_gatts_send_indicate(m_notif_params.gatts_if, m_notif_params.conn_id, m_handle_table[IDX_TEMP_1_VAL],
                                 sizeof(temp_1_char_value), (uint8_t *)&temp_1_char_value, m_notif_params.need_confirm);
+
+    temp_2_char_value = get_probe_temp(2);
+    esp_ble_gatts_send_indicate(m_notif_params.gatts_if, m_notif_params.conn_id, m_handle_table[IDX_TEMP_2_VAL],
+                                sizeof(temp_2_char_value), (uint8_t *)&temp_2_char_value, m_notif_params.need_confirm);
 }
 
 static void notif_start(esp_gatt_if_t gatts_if, uint16_t conn_id, bool need_confirm) {
@@ -215,9 +252,16 @@ static void ble_on_read(esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
         rsp.attr_value.handle = param->read.handle;
         rsp.attr_value.len = 4;
 
-        temp_1_char_value = get_probe_temp();
+        temp_1_char_value = get_probe_temp(1);
         memcpy(rsp.attr_value.value, &temp_1_char_value, sizeof(temp_1_char_value));
-        
+    } else if (param->read.handle == m_handle_table[IDX_TEMP_2_VAL]) {
+        rsp.attr_value.len = sizeof(temp_2_char_value);
+        memset(&rsp, 0, sizeof(esp_gatt_rsp_t));
+        rsp.attr_value.handle = param->read.handle;
+        rsp.attr_value.len = 4;
+
+        temp_2_char_value = get_probe_temp(2);
+        memcpy(rsp.attr_value.value, &temp_2_char_value, sizeof(temp_2_char_value));
     } else {
         gatt_status = ESP_GATT_INVALID_HANDLE;
     }

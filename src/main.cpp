@@ -26,6 +26,24 @@ static const Logger log("MAIN");
 
 extern "C" {
 
+void TestProbes() {
+    MAX31855 probe1(5);
+    MAX31855 probe2(2);
+
+    for (int i = 0; i < 100; i++) {
+        auto result1 = probe1.ReadTempC();
+        auto result2 = probe2.ReadTempC();
+        if (result1.getError() != MAX31855::Error::OK) {
+            log.Error("Failed to read thermocouple 1: %d", result1.getError());
+        } else if (result2.getError() != MAX31855::Error::OK) {
+            log.Error("Failed to read thermocouple 2: %d", result1.getError());
+        } else {
+            std::cout << "Temp read: 1 " << result1.getValue() << " | 2 "<< result2.getValue() << std::endl;
+        }
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}
+
 void app_main() {
     // initialize NVS
     esp_err_t status = nvs_flash_init();
@@ -46,25 +64,10 @@ void app_main() {
     std::cout << "* Flash size:     " << spi_flash_get_chip_size() / 1048576 << " MB" << std::endl;
     std::cout << "========================================" << std::endl;
 
-    // ble_init();
+    ble_init();
     log.Info("Waiting for BLE connection...");
 
-    MAX31855 probe1(5);
-    MAX31855 probe2(2);
-
-    for (int i = 0; i < 10; i++) {
-        auto result1 = probe1.ReadTempC();
-        auto result2 = probe2.ReadTempC();
-        if (result1.getError() != MAX31855::Error::OK) {
-            log.Error("Failed to read thermocouple 1: %d", result1.getError());
-        } else if (result2.getError() != MAX31855::Error::OK) {
-            log.Error("Failed to read thermocouple 2: %d", result1.getError());
-        } else {
-            std::cout << "Temp read: 1 " << result1.getValue() << " | 2 "<< result2.getValue() << std::endl;
-        }
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-    }
-
+    // TestProbes();
 }
 
 }

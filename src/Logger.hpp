@@ -37,8 +37,8 @@ public:
         ERROR = 0,
         WARN,
         INFO,
-        DEBUG,
         VERBOSE,
+        DEBUG,
     };
 
     Logger(const std::string &tag, Logger::Level level = Logger::Level::VERBOSE) : mTag(tag), mMinLevel(level) {};
