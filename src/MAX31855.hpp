@@ -27,11 +27,9 @@ public:
     /**
      * @brief Constructs a new MAX31855 object.
      * 
-     * @param dataPin The GPIO # of data line (MOSI)
-     * @param clkPin The GPIO # of clock line (CLK)
-     * @param csPin The GPIO # of chip select line (CS)
+     * @param chipSelectPin The GPIO # of chip select line (CS)
      */
-    MAX31855(int dataPin = 19, int clkPin = 18, int csPin = 5);
+    MAX31855(int chipSelectPin = 5);
 
     /**
      * @brief Destroys the MAX31855 object.
@@ -51,7 +49,12 @@ public:
     Either<int, MAX31855::Error> ReadTempC() const;
 
 private:
-    spi_device_handle_t m_spi;
+    static constexpr int mDataPin = 19;        // GPIO # of data line (MOSI)
+    static constexpr int mClkPin  = 18;        // GPIO # of clock line (CLK)
+    static int mNumDevices;
+
+    const int mCsPin;                          // GPIO # chip select line (CS)
+    spi_device_handle_t mSpiDevice;
 };
 
 #endif
