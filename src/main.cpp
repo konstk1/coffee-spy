@@ -27,8 +27,8 @@ static const Logger log("MAIN");
 extern "C" {
 
 void TestProbes() {
-    MAX31855 probe1(5);
-    MAX31855 probe2(2);
+    MAX31855 probe1(15);
+    MAX31855 probe2(4);
 
     for (int i = 0; i < 100; i++) {
         auto result1 = probe1.ReadTempC();
@@ -37,9 +37,10 @@ void TestProbes() {
             log.Error("Failed to read thermocouple 1: %d", result1.getError());
         } else if (result2.getError() != MAX31855::Error::OK) {
             log.Error("Failed to read thermocouple 2: %d", result1.getError());
-        } else {
-            std::cout << "Temp read: 1 " << result1.getValue() << " | 2 "<< result2.getValue() << std::endl;
         }
+        
+        std::cout << "Temp read: 1 " << result1.getValue() << " | 2 "<< result2.getValue() << std::endl;
+        
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
 }

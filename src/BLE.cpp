@@ -26,8 +26,8 @@
 
 static const Logger log("BLE");
 
-static const MAX31855 m_tc_probe_1(5);
-static const MAX31855 m_tc_probe_2(2);
+static const MAX31855 m_tc_probe_1(15);
+static const MAX31855 m_tc_probe_2(4);
 
 static constexpr uint8_t GATTS_SERVICE_UUID_COFFEE[] = { 0xFE, 0xCF };
 static constexpr uint16_t GATTS_CHAR_UUID_TEMP_1    = 0xFE01;
