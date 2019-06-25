@@ -15,6 +15,7 @@
                 "focus": false,
                 "panel": "shared",
                 "clear": true,
+                "revealProblems": "onProblem",
             },
             "command": "make",
             "problemMatcher": {

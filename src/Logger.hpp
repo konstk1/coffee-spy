@@ -49,24 +49,24 @@ public:
     Logger & operator=(const Logger &) = delete;
 
     template<typename... Args>
-    void Error(const char *format, Args&& ...args) const {
-        Write<Logger::Level::ERROR>(format, std::forward<Args>(args)...);
+    void error(const char *format, Args&& ...args) const {
+        write<Logger::Level::ERROR>(format, std::forward<Args>(args)...);
     };
     template<typename... Args>
-    void Warn(const char *format, Args&& ...args) const {
-        Write<Logger::Level::WARN>(format, std::forward<Args>(args)...);
+    void warn(const char *format, Args&& ...args) const {
+        write<Logger::Level::WARN>(format, std::forward<Args>(args)...);
     };
     template<typename... Args>
-    void Info(const char *format, Args&& ...args) const {
-        Write<Logger::Level::INFO>(format, std::forward<Args>(args)...);
+    void info(const char *format, Args&& ...args) const {
+        write<Logger::Level::INFO>(format, std::forward<Args>(args)...);
     };
     template<typename... Args>
-    void Debug(const char *format, Args&& ...args) const {
-        Write<Logger::Level::DEBUG>(format, std::forward<Args>(args)...);
+    void debug(const char *format, Args&& ...args) const {
+        write<Logger::Level::DEBUG>(format, std::forward<Args>(args)...);
     };
     template<typename... Args>
-    void Verbose(const char *format, Args&& ...args) const {
-        Write<Logger::Level::VERBOSE>(format, std::forward<Args>(args)...);
+    void verbose(const char *format, Args&& ...args) const {
+        write<Logger::Level::VERBOSE>(format, std::forward<Args>(args)...);
     };
 
     void SetMinLevel(Logger::Level level) { mMinLevel = level; };
@@ -82,14 +82,14 @@ private:
     static Logger::Level mGlobalLevel;
 
     template <Logger::Level level, typename... Args>
-    void Write(const char *format, Args &&... args) const {
+    void write(const char *format, Args &&... args) const {
         // if log level is below local level or global level, don't log
         if (level > mMinLevel || level > mGlobalLevel) {
             return;
         }
 
-        constexpr auto color = LevelColor(level);
-        constexpr auto prefix = LevelPrefix(level);
+        constexpr auto color = levelColor(level);
+        constexpr auto prefix = levelPrefix(level);
 
         printf("%s%s (%d) %s: ", color, prefix, esp_log_timestamp(), mTag.c_str());
         printf(format, std::forward<Args>(args)...);
@@ -98,7 +98,7 @@ private:
         fflush(stdout);
     };
 
-    constexpr static auto LevelPrefix(Logger::Level level) {
+    constexpr static auto levelPrefix(Logger::Level level) {
         switch (level) {
             case Logger::Level::ERROR:
                 return "E";
@@ -115,7 +115,7 @@ private:
         }
     };
 
-    constexpr static auto LevelColor(Logger::Level level) {
+    constexpr static auto levelColor(Logger::Level level) {
         switch(level) {
             case Logger::Level::ERROR:
                 return LOG_COLOR(LOG_COLOR_RED);

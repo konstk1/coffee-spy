@@ -194,17 +194,17 @@ static int32_t get_probe_temp(int probe_num) {
 
     switch(probe_num) {
         case 1:
-            result = m_tc_probe_1.ReadTemp();
+            result = m_tc_probe_1.readTemp();
             break;
         case 2:
-            result = m_tc_probe_2.ReadTemp();
+            result = m_tc_probe_2.readTemp();
             break;
         default:
             return INT32_MIN;
     }
 
     int32_t value = result.getError() == MAX31855::Error::OK ? result.getValue() : INT32_MIN;
-    log.Verbose("TC Temp: %d C", value);
+    log.verbose("TC Temp: %d C", value);
     return swap_byte_32(value);
 }
 
@@ -225,13 +225,13 @@ static void notif_start(esp_gatt_if_t gatts_if, uint16_t conn_id, bool need_conf
 
     // start timer, if not already active
     if (xTimerIsTimerActive(m_temp_notify_timer) == pdFALSE && xTimerStart(m_temp_notify_timer, 100) != pdPASS) {
-        log.Error("Failed to start temp notify timer");
+        log.error("Failed to start temp notify timer");
         return;
     }
 };
 
 static void notif_stop() {
-    log.Verbose("Stop notifications");
+    log.verbose("Stop notifications");
     xTimerStop(m_temp_notify_timer, 100);
 };
 
@@ -273,7 +273,7 @@ static void ble_on_read(esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 static void ble_on_write(esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
     esp_gatt_status_t gatt_status = ESP_GATT_OK;
 
-    log.Debug("ON WRITE: is_prep %d  need_rsp %d", param->write.is_prep, param->write.need_rsp);
+    log.debug("ON WRITE: is_prep %d  need_rsp %d", param->write.is_prep, param->write.need_rsp);
 
     // right now we only handle CFG writes which don't require prep or response
     if (!param->write.is_prep) {
@@ -281,16 +281,16 @@ static void ble_on_write(esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param
         if (param->write.handle == m_handle_table[IDX_TEMP_1_CHAR_CFG] && param->write.len == 2) {
             uint16_t descr_value = param->write.value[1] << 8 | param->write.value[0];
             if (descr_value == 0x0001) {
-                log.Info("notify enable");
+                log.info("notify enable");
                 notif_start(gatts_if, param->write.conn_id, false);
             } else if (descr_value == 0x0002) {
-                log.Info("indicate enable");
+                log.info("indicate enable");
                 notif_start(gatts_if, param->write.conn_id, true);
             } else if (descr_value == 0x0000) {
-                log.Info("notify/indicate disable ");
+                log.info("notify/indicate disable ");
                 notif_stop();
             } else {
-                log.Error("unknown descr value");
+                log.error("unknown descr value");
             }
         } else {
             gatt_status = ESP_GATT_INVALID_HANDLE;
@@ -315,24 +315,24 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
         }
         break;
     case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
-        log.Warn("Scan response set complete (shouldn't be here)");
+        log.warn("Scan response set complete (shouldn't be here)");
         break;
     case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
         //advertising start complete event to indicate advertising start successfully or failed
         if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
-            log.Error("Advertising start failed");
+            log.error("Advertising start failed");
         }
         break;
     case ESP_GAP_BLE_ADV_STOP_COMPLETE_EVT:
         if (param->adv_stop_cmpl.status != ESP_BT_STATUS_SUCCESS) {
-            log.Error("Advertising stop failed");
+            log.error("Advertising stop failed");
         }
         else {
-            log.Error("Stop adv successfully");
+            log.error("Stop adv successfully");
         }
         break;
     case ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT:
-         log.Info("Update connection params status = %d, min_int = %d, max_int = %d,conn_int = %d,latency = %d, timeout = %d",
+         log.info("Update connection params status = %d, min_int = %d, max_int = %d,conn_int = %d,latency = %d, timeout = %d",
                   param->update_conn_params.status,
                   param->update_conn_params.min_int,
                   param->update_conn_params.max_int,
@@ -348,35 +348,35 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param) {
     switch (event) {
     case ESP_GATTS_REG_EVT: {
-        // log.Info("REGISTER_APP_EVT, status %d, app_id %d\n", param->reg.status, param->reg.app_id);
+        // log.info("REGISTER_APP_EVT, status %d, app_id %d\n", param->reg.status, param->reg.app_id);
         esp_err_t status = esp_ble_gap_set_device_name(BLE_DEVICE_NAME);
         if (status != ESP_OK) {
-            log.Error("set device name failed, error code = %x", status);
+            log.error("set device name failed, error code = %x", status);
         }
         //config adv data
         status = esp_ble_gap_config_adv_data(const_cast<esp_ble_adv_data_t *>(&m_adv_data));
         if (status != ESP_OK) {
-            log.Error("config adv data failed, error code = %x", status);
+            log.error("config adv data failed, error code = %x", status);
         }
         m_adv_config_done |= ADV_CONFIG_FLAG;
         
         status = esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, IDX_NUM_STATES, SVC_INST_ID);
         if (status != ESP_OK) {
-            log.Error("create attr table failed, error code = %x", status);
+            log.error("create attr table failed, error code = %x", status);
         }
         break;
     }
     case ESP_GATTS_READ_EVT: {
-        log.Info("GATT_READ_EVT, conn_id %d, trans_id %d, handle %d\n", param->read.conn_id, param->read.trans_id, param->read.handle);
+        log.info("GATT_READ_EVT, conn_id %d, trans_id %d, handle %d\n", param->read.conn_id, param->read.trans_id, param->read.handle);
         ble_on_read(gatts_if, param);
         break;
     }
     case ESP_GATTS_WRITE_EVT:
-        log.Warn("GATT_WRITE_EVT, conn_id %d, trans_id %d, handle %d", param->write.conn_id, param->write.trans_id, param->write.handle);
+        log.warn("GATT_WRITE_EVT, conn_id %d, trans_id %d, handle %d", param->write.conn_id, param->write.trans_id, param->write.handle);
         ble_on_write(gatts_if, param);
         break;
     case ESP_GATTS_EXEC_WRITE_EVT:
-        log.Warn("ESP_GATTS_EXEC_WRITE_EVT");
+        log.warn("ESP_GATTS_EXEC_WRITE_EVT");
         break;
     case ESP_GATTS_MTU_EVT:
         break;
@@ -385,7 +385,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     case ESP_GATTS_DELETE_EVT:
         break;
     case ESP_GATTS_START_EVT:
-        // log.Info("SERVICE_START_EVT, status %d, service_handle %d\n", param->start.status, param->start.service_handle);
+        // log.info("SERVICE_START_EVT, status %d, service_handle %d\n", param->start.status, param->start.service_handle);
         break;
     case ESP_GATTS_STOP_EVT:
         break;
@@ -398,7 +398,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         conn_params.min_int = m_conn_min_interval;
         conn_params.timeout = m_conn_timeout;
 
-        log.Info("ESP_GATTS_CONNECT_EVT, conn_id %d, remote %02x:%02x:%02x:%02x:%02x:%02x:",
+        log.info("ESP_GATTS_CONNECT_EVT, conn_id %d, remote %02x:%02x:%02x:%02x:%02x:%02x:",
                  param->connect.conn_id,
                  param->connect.remote_bda[0], param->connect.remote_bda[1], param->connect.remote_bda[2],
                  param->connect.remote_bda[3], param->connect.remote_bda[4], param->connect.remote_bda[5]);
@@ -407,18 +407,18 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         break;
     }
     case ESP_GATTS_DISCONNECT_EVT:
-        log.Info("ESP_GATTS_DISCONNECT_EVT, disconnect reason 0x%x", param->disconnect.reason);
+        log.info("ESP_GATTS_DISCONNECT_EVT, disconnect reason 0x%x", param->disconnect.reason);
         notif_stop();
         esp_ble_gap_start_advertising(const_cast<esp_ble_adv_params_t *>(&m_adv_params));
         break;
     case ESP_GATTS_CREAT_ATTR_TAB_EVT:
         if (param->add_attr_tab.status != ESP_GATT_OK) {
-            log.Error("create attribute table failed, error code=0x%x", param->add_attr_tab.status);
+            log.error("create attribute table failed, error code=0x%x", param->add_attr_tab.status);
         } else if (param->add_attr_tab.num_handle != IDX_NUM_STATES) {
-            log.Error("create attribute table abnormally, num_handle (%d) doesn't equal to IDX_NUM_STATES(%d)",
+            log.error("create attribute table abnormally, num_handle (%d) doesn't equal to IDX_NUM_STATES(%d)",
                      param->add_attr_tab.num_handle, IDX_NUM_STATES);
         } else {
-            // log.Info("create attribute table successfully, the number handle = %d\n", param->add_attr_tab.num_handle);
+            // log.info("create attribute table successfully, the number handle = %d\n", param->add_attr_tab.num_handle);
             memcpy(m_handle_table, param->add_attr_tab.handles, sizeof(m_handle_table));
             esp_ble_gatts_start_service(m_handle_table[IDX_SVC]);
         }
@@ -440,7 +440,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
         if (param->reg.status == ESP_GATT_OK) {
             m_profile_tab[PROFILE_APP_IDX].gatts_if = gatts_if;
         } else {
-            log.Info("Reg app failed, app_id %04x, status %d\n", param->reg.app_id, param->reg.status);
+            log.info("Reg app failed, app_id %04x, status %d\n", param->reg.app_id, param->reg.status);
             return;
         }
     }
@@ -466,56 +466,56 @@ void ble_init() {
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     if (esp_bt_controller_init(&bt_cfg) != ESP_OK) {
-        log.Error("BLE ctrl init failed");
+        log.error("BLE ctrl init failed");
         return;
     }
 
     status = esp_bt_controller_enable(ESP_BT_MODE_BLE);
     if (status != ESP_OK) {
-        log.Error("BLE ctrl enable failed: %s", esp_err_to_name(status));
+        log.error("BLE ctrl enable failed: %s", esp_err_to_name(status));
         return;
     }
 
-    log.Info("Initializing BLE");
+    log.info("Initializing BLE");
     status = esp_bluedroid_init();
     if (status != ESP_OK) {
-        log.Error("Bluedroid init failed: %s", esp_err_to_name(status));
+        log.error("Bluedroid init failed: %s", esp_err_to_name(status));
         return;
     }
 
     status = esp_bluedroid_enable();
     if (status != ESP_OK) {
-        log.Error("Bluedroid enable failed: %s", esp_err_to_name(status));
+        log.error("Bluedroid enable failed: %s", esp_err_to_name(status));
         return;
     }
 
     status = esp_ble_gatts_register_callback(gatts_event_handler);
     if (status != ESP_OK) {
-        log.Error("GATTS register callback failed: %s", esp_err_to_name(status));
+        log.error("GATTS register callback failed: %s", esp_err_to_name(status));
         return;
     }
     
     status = esp_ble_gap_register_callback(gap_event_handler);
     if (status != ESP_OK) {
-        log.Error("GAP register callback failed: %s", esp_err_to_name(status));
+        log.error("GAP register callback failed: %s", esp_err_to_name(status));
         return;
     }
     
     status = esp_ble_gatts_app_register(APP_ID);
     if (status != ESP_OK) {
-        log.Error("Reg app failed: %s", esp_err_to_name(status));
+        log.error("Reg app failed: %s", esp_err_to_name(status));
         return;
     }
 
     // set MTU
     status = esp_ble_gatt_set_local_mtu(200);
     if (status != ESP_OK) {
-        log.Error("Failed MTU set: %s", esp_err_to_name(status));
+        log.error("Failed MTU set: %s", esp_err_to_name(status));
     }
 
     m_temp_notify_timer = xTimerCreate("TempNotify", 1000 / portTICK_PERIOD_MS, pdTRUE, NULL, temp_notify);
     if (!m_temp_notify_timer) {
-        log.Error("Failed to create temp notify timer");
+        log.error("Failed to create temp notify timer");
         return;
     }
 
@@ -525,7 +525,7 @@ void ble_init() {
 void ble_enable() {
     esp_err_t status = esp_bluedroid_enable();
     if (status != ESP_OK) {
-        log.Error("BLE enable failed: %s", esp_err_to_name(status));
+        log.error("BLE enable failed: %s", esp_err_to_name(status));
         return;
     }
 }

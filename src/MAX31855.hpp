@@ -46,14 +46,14 @@ public:
      * 
      * @return Either<int, MAX31855::Error> Result with temperature in LSB counts (0.25 degC) or error code
      */
-    Either<int, MAX31855::Error> ReadTemp() const;
+    Either<int, MAX31855::Error> readTemp() const;
 
     /**
      * @brief Read thermocouple temperature.
      * 
      * @return Either<int, MAX31855::Error> Result with temperature in Celsius or error code
      */
-    Either<int, MAX31855::Error> ReadTempC() const;
+    Either<int, MAX31855::Error> readTempC() const;
 
 private:
     static constexpr int mDataPin = 19;        // GPIO # of data line (MOSI)

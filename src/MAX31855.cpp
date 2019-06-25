@@ -36,7 +36,7 @@ int MAX31855::mNumDevices = 0;
 MAX31855::MAX31855(int chipSelectPin): mCsPin(chipSelectPin) {
     // only init SPI once
     if (mNumDevices == 0) {
-        log.Info("Initializing VSPI (MISO %d CLK %d)", mDataPin, mClkPin);
+        log.info("Initializing VSPI (MISO %d CLK %d)", mDataPin, mClkPin);
         constexpr spi_bus_config_t busCfg = {
             .mosi_io_num = -1,
             .miso_io_num = mDataPin,
@@ -79,26 +79,26 @@ MAX31855::MAX31855(int chipSelectPin): mCsPin(chipSelectPin) {
     }
 
     ++mNumDevices;
-    log.Verbose("Added SPI Dev (CS %d)", mCsPin);
+    log.verbose("Added SPI Dev (CS %d)", mCsPin);
 }
 
 MAX31855::~MAX31855() {
     esp_err_t status = spi_bus_remove_device(mSpiDevice);
     if (status != ESP_OK) {
-        log.Error("Failed to remove device (CS %d)", mCsPin);
+        log.error("Failed to remove device (CS %d)", mCsPin);
     }
 
-    log.Verbose("Removed MAX31855 (CS %d)", mCsPin);
+    log.verbose("Removed MAX31855 (CS %d)", mCsPin);
     
     --mNumDevices;
 
     if (mNumDevices == 0) {
-        log.Verbose("No more devices, freeing VSPI Bus");
+        log.verbose("No more devices, freeing VSPI Bus");
         spi_bus_free(VSPI_HOST);
     }
 }
 
-Either<int, MAX31855::Error> MAX31855::ReadTemp() const {
+Either<int, MAX31855::Error> MAX31855::readTemp() const {
     // create 32-bit rx-only transaction putting data directly into transaction struct
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));
@@ -108,25 +108,25 @@ Either<int, MAX31855::Error> MAX31855::ReadTemp() const {
 
     esp_err_t status = spi_device_polling_transmit(mSpiDevice, &t);
     if (status != ESP_OK) {
-        log.Error("Failed SPI transmit: %s", esp_err_to_name(status));
+        log.error("Failed SPI transmit: %s", esp_err_to_name(status));
         return Either<int, MAX31855::Error>(0, MAX31855::Error::SPI_ERROR);
     }
 
     uint32_t rawData = SPI_SWAP_DATA_RX(*(uint32_t*)t.rx_data, 32);  // byte-swap RX data
 
     if (rawData == 0) {
-        log.Error("SPI device not responding");
+        log.error("SPI device not responding");
         return Either<int, MAX31855::Error>(0, MAX31855::Error::SPI_ERROR);
     }
 
     max31855_data_t *data = reinterpret_cast<max31855_data_t *>(&rawData);
     
-    log.Debug("Data (0x%08X): TC %d F %d IC %d SCV %d SCG %d OC %d", rawData, (int)data->tcTemp, (int)data->fault, (int)data->internalTemp,
+    log.debug("Data (0x%08X): TC %d F %d IC %d SCV %d SCG %d OC %d", rawData, (int)data->tcTemp, (int)data->fault, (int)data->internalTemp,
         (int)data->shortToVccFault, (int)data->shortToGndFault, (int)data->openCircuitFault);
-    log.Debug("Data HEX %02X %02X %02X %02X", t.rx_data[0], t.rx_data[1], t.rx_data[2], t.rx_data[3]);
+    log.debug("Data HEX %02X %02X %02X %02X", t.rx_data[0], t.rx_data[1], t.rx_data[2], t.rx_data[3]);
 
     if (data->fault) {
-        log.Error("Data fault (SCV %d SCG %d OC %d)", (int)data->shortToVccFault, (int)data->shortToGndFault, (int)data->openCircuitFault);
+        log.error("Data fault (SCV %d SCG %d OC %d)", (int)data->shortToVccFault, (int)data->shortToGndFault, (int)data->openCircuitFault);
         MAX31855::Error error = data->shortToGndFault ? MAX31855::Error::TC_SCG : (
                                 data->shortToVccFault ? MAX31855::Error::TC_SCV : MAX31855::Error::TC_OPEN);
         return Either<int, MAX31855::Error>(0, error);
@@ -135,8 +135,8 @@ Either<int, MAX31855::Error> MAX31855::ReadTemp() const {
     return Either<int, MAX31855::Error>(data->tcTemp, MAX31855::Error::OK) ;
 }
 
-Either<int, MAX31855::Error> MAX31855::ReadTempC() const {
-    auto result = ReadTemp();
+Either<int, MAX31855::Error> MAX31855::readTempC() const {
+    auto result = readTemp();
 
     if (result.getError() != Error::OK) {
         return result;
