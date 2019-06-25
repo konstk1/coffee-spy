@@ -44,6 +44,13 @@ public:
     /**
      * @brief Read thermocouple temperature.
      * 
+     * @return Either<int, MAX31855::Error> Result with temperature in LSB counts (0.25 degC) or error code
+     */
+    Either<int, MAX31855::Error> ReadTemp() const;
+
+    /**
+     * @brief Read thermocouple temperature.
+     * 
      * @return Either<int, MAX31855::Error> Result with temperature in Celsius or error code
      */
     Either<int, MAX31855::Error> ReadTempC() const;

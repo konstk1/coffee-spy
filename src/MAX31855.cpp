@@ -98,7 +98,7 @@ MAX31855::~MAX31855() {
     }
 }
 
-Either<int, MAX31855::Error> MAX31855::ReadTempC() const {
+Either<int, MAX31855::Error> MAX31855::ReadTemp() const {
     // create 32-bit rx-only transaction putting data directly into transaction struct
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));
@@ -132,7 +132,17 @@ Either<int, MAX31855::Error> MAX31855::ReadTempC() const {
         return Either<int, MAX31855::Error>(0, error);
     }
 
-    int tempC = data->tcTemp >> 2;       // LSB is 0.25 degC
+    return Either<int, MAX31855::Error>(data->tcTemp, MAX31855::Error::OK) ;
+}
 
-    return Either<int, MAX31855::Error>(tempC, MAX31855::Error::OK) ;
+Either<int, MAX31855::Error> MAX31855::ReadTempC() const {
+    auto result = ReadTemp();
+
+    if (result.getError() != Error::OK) {
+        return result;
+    }
+
+    int tempC = result.getValue() >> 2; // convert from LSB (0.25C) to C
+
+    return Either<int, Error>(tempC, Error::OK);
 }

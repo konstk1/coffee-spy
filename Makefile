@@ -16,6 +16,6 @@ ESPBAUD ?= 1500000
 
 # CFLAGS += -DINCLUDE_UNIT_TESTS
 CFLAGS += -Wno-packed-bitfield-compat #-Wno-char-subscripts
-CXXFLAGS += -std=c++14
+CXXFLAGS += -std=c++17
 
 include $(IDF_PATH)/make/project.mk

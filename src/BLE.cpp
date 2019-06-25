@@ -194,10 +194,10 @@ static int32_t get_probe_temp(int probe_num) {
 
     switch(probe_num) {
         case 1:
-            result = m_tc_probe_1.ReadTempC();
+            result = m_tc_probe_1.ReadTemp();
             break;
         case 2:
-            result = m_tc_probe_2.ReadTempC();
+            result = m_tc_probe_2.ReadTemp();
             break;
         default:
             return INT32_MIN;
